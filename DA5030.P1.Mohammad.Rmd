@@ -1,0 +1,597 @@
+---
+title: "Practicum 1"
+author: "Dr. Nishat Mohammad"
+date: 02/03/2024
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+```{r, echo=FALSE, message=FALSE, results='hide'}
+# Load packages
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+```
+## 1 / Predicting Diabetes.  
+
+```{r P1Q1, echo=FALSE, message=FALSE}
+#This problem requires analysis of Diabetes DatasetLinks to an external site.. You can also download the data set here Download download the data set here. This dataset is originally from the National Institute of Diabetes and Digestive and Kidney Diseases. The objective of the dataset is to diagnostically predict whether or not a patient has diabetes, based on certain diagnostic measurements included in the dataset. Several constraints were placed on the selection of these instances from a larger database. In particular, all patients here are females at least 21 years old of Pima Indian heritage.
+
+#Here are the details and attributes of the dataset:
+
+#Number of Instances: 768
+#Number of Features: 8 numerical features
+#Target Variable: Outcome (1 = positive, 0 = negetive)
+#The dataset includes the following features:
+
+#Pregnancies: Number of times pregnant
+#Glucose: Plasma glucose concentration a 2 hours in an oral glucose tolerance test
+#Blood Pressure: Diastolic blood pressure (mm Hg)
+#SkinThickness: Triceps skin fold thickness (mm)
+#Insulin: 2-Hour serum insulin (mu U/ml)
+#BMI: Body mass index (weight in kg/(height in m)^2)
+#DiabetesPedigreeFunction: Diabetes pedigree function
+#Age: Age (years)
+#The dataset is typically used for binary classification tasks, where the goal is to predict an individual has diabetes (1) or not (0) based on the feature values. The diagnostic aspect of the dataset makes it valuable for building predictive models for diabetes diagnosis, which has important applications in medical research and healthcare.
+
+#Please note in some datasets, missing values in the input variables are encoded as "0"s, you should investigate whether you should consider 0's in the input features as NAs for this dataset.
+
+#(0 pts) Explore the data set in any way you like. 
+#You may use one or more code chunks for the exploration, 
+#but do not include those code chunks in your final knitted document, 
+#i.e., set {echo=F}. make sure to drop the ID column for the rest of this practice.
+dm_dt <- read.csv("diabetes.csv",stringsAsFactors = FALSE )
+str(dm_dt)
+dim(dm_dt)
+summary(dm_dt)
+# There is no ID column in this data set
+```
+There is no Id Column in this data set. I found zero values which looked out of the ordinary for Glucose, BloodPressure, SkinThickness, Insulin, BMI. Glucose has a range for the blood concentration , it cannot be zero even after death. Insulin concentrations fluctuate with circadian rhythm and also cannot be zero even in type I Diabetes but for simplicity sake I will consider that at the time of compilation of this dataset for some reason the researchers were not able to document close to 0 values of insulin for type I diabetes. Blood pressure also has a range and cannot be zero as well. SkinThickness can only be zero if there is no skin so I thought this was also not realistic. BMI cannot be zero as it is a measure of mass. There were zero values in Pregnancies which is possibility and not out of the ordinary. Outcome is zero for negative instances of the target variable. There are a total of 768 observations in total.  
+
+### 1.1 / Analysis of Data Distribution.
+
+```{r P1Q2, echo=FALSE}
+# (5 pts) Add header ### 1.1 / Analysis of Data Distribution. Create a histogram of column "Glucose" column and overlay a normal curve. 
+# Do not echo the code in the knitted file. In markdown below the histogram, comment on the distribution of the data. 
+# Think about these questions: Is the data reasonably normally distributed? Is it skewed? Why does it matter?
+# Get a seq of 100 points
+xfitd <- seq(min(dm_dt$Glucose), max(dm_dt$Glucose), length = 100)
+
+# Get the probability density function
+yfitd <- dnorm(xfitd, mean = mean(dm_dt$Glucose), sd = sd(dm_dt$Glucose)) 
+#yfitd
+
+# Histogram with over lay
+# plotting a normal curve
+hist(dm_dt$Glucose, prob=TRUE, col= "orange", xlab = "Glucose") 
+
+lines(xfitd, yfitd, col = "green", lwd = 1)
+
+
+```
+The glucose distribution appears reasonably normal although the left tail is slightly longer and narrower than the right tail. it is skewed to the right slightly and this is usually the case for real life data due to sample variability due to method and timing of sampling among many other discrepancies that bring a slight bias which can be overlooked. Severe skewness is however detrimental to statistical evaluations of analysis of the data.  
+Coming back to the summary of the data shown above we did have a couple of zero values under the glucose column, these are also contributing to the skewness slightly shifting to the right and it would be standard to impute these values and then look at the data distribution again. The data seems to have heavy outlier population on the right tail, this could imply they are cases with diabetes with uncontrolled blood glucose or some errors related to blood glucose estimation from sampling to testing and documentation processes.  
+
+```{r P1Q3_shapiro, echo=FALSE}
+# (5 pts) Test the normality of the column "Glucose" by performing either a Shapiro-Wilk (tutorialLinks to an external site.) or Kolmogorov-SmirnovLinks to an external site. test. Describe what you found in markdown. Do not echo the code, just include the result in markdown. Be sure to add your analysis of the p-value.
+
+test_shap <- shapiro.test(dm_dt$Glucose)
+shapiro_val <- test_shap$statistic
+shapiro_p_val <- test_shap$p.value
+#shapiro_val
+#shapiro_p_val
+```
+The Shapiro-Wilk test result is `r paste0('"',shapiro_val,'"')` which shows that the data is normally distributed. The p-value is `r paste0('"',shapiro_p_val,'"')`. which is pretty low and thus strong to support that the data is strongly normally distributed.  
+
+### 1.2 / Identification of Outliers.  
+
+```{r P1Q4}
+# (5 pts) Add header ### 1.2 / Identification of Outliers. Identify any outliers for the columns using a Z-score deviation approach, i.e., consider any values that are more than 2.5 standard deviations from the mean as outliers. For each column, calculate the mean (µ) and the standard deviation (σ). Then for each value xi in a column, calculate |µ - xi| / σ. So, for each value you are calculating the distance from the mean in terms of standard deviations. This value is called the z-score for xi. Any value above some threshold (2.5 for this question) means that the value is far from the mean and is considered an outlier.
+#Which are your outliers for each column? What would you do? Summarize the results of your analysis and any potential strategies in your notebook's markdown. Explain how you identified the outliers and how many you found. 
+
+# Get at the z scores
+
+z <- as.data.frame(apply(dm_dt, 2, function(dm_dt) (abs(dm_dt-mean(dm_dt))/sd(dm_dt))))
+
+cols = colnames(dm_dt)
+for (col in cols){
+  outlyr = dm_dt[,col][z[,col] > 2.5] 
+  print(paste("The outliers for the", col, "are:"))
+  print(outlyr)
+}
+
+```
+From the code chunk above, The outliers in the data have been identified and printed out.  
+
+Z_score calculation: I took the columns of the data (using dm_dta, 2) and applied a function that calculates the zscore. this function subtracts the mean from the value, gets the absolute value and then divides by the standard deviation.  
+
+Outlier Identification: This was done using a for loop, in which each column in the data was iterated upon by its name. the value was checked if it was 2.5 sd away form the z-score, if yes, then the it was added to the `outlyr` object. These were printed based on the column name they fell under. Hope this explanation was ample to understand the code. 
+
+Looking at the outliers:  
+
+Pregnancies: have outliers ranging from 13 to 17, since we are considering women of at least 21 years, it would be impossible to have had that number of pregnancies in that short time. This can be imputed by methods which will be subsequently discussed.  Unless ofcurse we consisder that ther may be outliers in the age variable as well which we will look at subsequently
+
+Glucose: the oultiers are zero values just as I had pointed out earlier. these need to be imputed as well.  
+
+Blood Pressure: The outliers are mainly zeros which are not compatible with realistic scenarios. 122 for diastolic blood pressure is also an outlier, it may be imputed as well to have a better analysis although it may be indicative of diastolic hypertension which is one of the signs of right sided heart failure. but that is not the focus of this data and analysis so we may go ahead to impute this.  
+
+Skin Thickness: The skin thickness of 63 and 99 are found to be outliers, they are indicative of excess subcutaneous fat and tell us about the nutritional category of the subjects in the study, these individuals may have high BMI and a very low insulin. We may take this off for this analysis.  
+
+Insulin and Diabetes Pedigree function: The outliers are many in these variables and will be imputed as well.  
+
+Age outliers are above 21 yrs and will require imputation.  These outliers could account for those in pregnancies varaible.
+
+Techniques for handling Outliers:  
+
+1) Deleting data points that are outliers from the data entirely is a way of handling that must be used with caution to avoid drastic reduction in the size of the data set.  
+
+2) Impute with the mean, median  implies the replacement of outliers with the mean or the median, the choice of value to replace the outliers with is subjective.  
+3) The 10th quantile to replace the outliers at the lower end of the data and 90th percentile to replace the outliers at the other end.  
+
+With the next code chunk I will go ahead to remove the rows with outliers.  
+
+```{r P1Q4_handle_outliers}
+outlyr_preprocesd_dt <- dm_dt[!rowSums(z>2.5), ]
+num_rows1 <- nrow(outlyr_preprocesd_dt)
+summary(outlyr_preprocesd_dt)
+
+```
+Now, 644 observations are left after removing outliers.  It will be convenient to handle the missing values i.e. the zero values in some of the variables, I will do this in the next chunk of code. From the summary we can see the only columns with zero values now are the Pregnancies which is not out of the ordinary, the SkinThickness which I will consider missing values and have them imputed witht the median value for that varaible.
+
+The Insulin variable is predominantly zeros, I have reservations about this considering that in recent years Type I Diabetes patients(insulin deficient) have been found to have minimal concentrations of insulin. I am tempted to assume at the time of compilation of this dataset these minimal concentrations of insulin were not detected by the researchers because if I am to impute insulin variable it will also be to a very large extent since most of the observations for this variable have 0 value. I considered checking the values of Outcome variable for insulin 0 in the code chunk below.
+
+```{r P1Q4_explore_insulin_variable}
+# check the outcome for insulin = 0
+insulin_outcome_var <- outlyr_preprocesd_dt %>%
+  filter(Insulin==0) %>%
+  select(Outcome) %>%
+  filter(Outcome==1)
+  #filter(Outcome==0)
+
+```
+
+I found that about half of the cases with insulin 0 have outcome 1 and the rest have outcome 1. I am thus taking the zeros in insulin as missing values and will impute them with the median. Also, I found out that for imputation there is no limit of missingness unlike the case of removing the data from the the dataset entirely, so I feel more comfortable imputing the values for insulin and the skin thickness variables in the code chunk below.  
+
+```{r P1Q4_handle_missing_values}
+# Impute skinThickness with median
+# replace 0 with NA
+outlyr_preprocesd_dt$SkinThickness[outlyr_preprocesd_dt$SkinThickness == 0] <- 
+  NA
+#any(is.na(outlyr_preprocesd_dt$SkinThickness))
+#head(outlyr_preprocesd_dt$SkinThickness)
+
+# Get the median
+mid_skinthickness <- median(outlyr_preprocesd_dt$SkinThickness, na.rm = TRUE)
+
+# Replace the NA with median
+ind_NA_ST <- which(is.na(outlyr_preprocesd_dt$SkinThickness)   == TRUE)
+outlyr_preprocesd_dt$SkinThickness[ind_NA_ST] <- mid_skinthickness
+head(outlyr_preprocesd_dt$SkinThickness)
+
+
+# Impute insulin with median
+outlyr_preprocesd_dt$Insulin[outlyr_preprocesd_dt$Insulin == 0] <- 
+  NA
+#any(is.na(outlyr_preprocesd_dt$Insulin))
+#head(outlyr_preprocesd_dt$Insulin)
+
+# Get the median
+mid_insulin <- median(outlyr_preprocesd_dt$Insulin, na.rm = TRUE)
+
+# Replace the NA with median
+ind_NA_i <- which(is.na(outlyr_preprocesd_dt$Insulin)   == TRUE)
+outlyr_preprocesd_dt$Insulin[ind_NA_i] <- mid_insulin
+head(outlyr_preprocesd_dt$Insulin)
+
+```
+
+
+### 1.3 / Data Preparation.
+```{r}
+# (5 pts + 1 bonus) Add header ### 1.3 / Data Preparation. Normalize all numeric columns using z-score standardization. (Bonus point if you write your own function and do not use the scale() function in R). Explain in your markdown what you are doing and why normalization is necessary.
+
+scald_dt <- as.data.frame(scale(outlyr_preprocesd_dt[,1:(ncol(outlyr_preprocesd_dt)-1)])) 
+#head(scald_dt)
+Outcome <- outlyr_preprocesd_dt$Outcome
+# Add outcome
+scald_dt <- cbind(scald_dt, Outcome)
+head(scald_dt)
+
+```
+The table above shows a few values of the data after standardization with all the values in the same range. I have used the `scale()` function to carry this step out.  This step is important because knn is sensitive to the scale of values in the data and normalizing the data will prevent bias since all the features are equally learnt by the model and a fair comparison between them occurs making it easier to weigh the importance of these features.
+
+
+### 1.4 / Sampling Training and Validation Data.  
+
+```{r}
+# (5 pts) Add header ### 1.4 / Sampling Training and Validation Data. Randomize (shuffle) the data and create a stratified sample where you randomly select 20% of each of the cases for each "Outcome" type to be part of the validation data set, so 20% of the Outcome Class 0 and 20% of the Outcome Class 1. The remaining cases will form the training data set. Put the training and validation data into new dataframes.
+# get the stratified data
+Outcome0 <- scald_dt[scald_dt$Outcome == 0,]
+Outcome1 <- scald_dt[scald_dt$Outcome == 1,]
+
+out_neg <- sample(rownames(Outcome0), 0.20 * nrow(Outcome0))
+out_pos <- sample(rownames(Outcome1), 0.20 * nrow(Outcome1))
+#head(scald_dt[out_neg,])
+#head(scald_dt[out_pos,])
+
+# Create the validation set
+validatn_set <- rbind(scald_dt[out_neg,],scald_dt[out_pos,])
+nrow(validatn_set)
+#head(validatn_set)
+
+# create the training set
+train_set <- scald_dt[!(row.names(scald_dt) %in% c(out_neg,out_pos)),]
+nrow(train_set)
+head(train_set)
+# cross checking for my understanding
+nrow(validatn_set) / sum(nrow(validatn_set), nrow(train_set))
+
+```
+In this code chunk I have stratified the data based on outcome classes. created the validation set from 20% of both classes of Outcome. the rest of the data is the training data.
+
+
+### 1.5 / Predictive Modeling.  
+
+```{r P1Q7}
+# (5 pts) Add header ### 1.5 / Predictive Modeling. Apply the knn function from the class package with k=5 to predict the outcome for the following new data point (you can impute the missing values/columns using median) and make a prediction.  Make sure you standardize the new data values the same way as you standardized the training data or distance calculations will not be meaningful.
+
+#Pregnancies	Glucose	BloodPressure	SkinThickness	Insulin	BMI	DiabetesPedigreeFunction	Age
+#4	178	82	32	NA	37	0.602	54
+
+# Define the given data
+nw_data <- c(4, 178, 82, 32, NA, 37, 0.602, 54)
+
+#Replace the NA with median for insulin
+nw_ind_NA_i <- which(is.na(nw_data)   == TRUE)
+nw_data[nw_ind_NA_i] <- mid_insulin
+#nw_data
+
+# Standardize the new data
+nw_scald_dt <- scale(nw_data)
+nw_scald_dt
+
+# apply knn form class package: with the trainin set, test data as the new data and the k as 5 
+library(class)
+get_knn_outcome <- knn(train = train_set[-9],
+                       test = t(nw_scald_dt),
+                       cl = train_set$Outcome, k=5)
+
+
+
+```
+
+The outcome of the prediction using knn is `r paste0('"',get_knn_outcome,'"')`. which is positive.
+
+### 1.6 / Model Accuracy.  
+
+```{r P1Q8_model_accuracy_plot, echo=FALSE}
+# (5 pts) Add header ### 1.6 / Model Accuracy. Using kNN from the class package, create a plot of k (x-axis) from 2 to 10 versus accuracy (percentage of correct classifications). Display the chart and explain what you did and what it tells you. Through inspection of the plot, what value for k would you choose in your final model? Write all of this in markdown and do not echo the code for the chart. Again, make sure you standardize the new data values the same way as you standardized the training data or distance calculations will not be meaningful.
+
+k_accuracy <- c() 
+k <- c(2:10)
+
+# Loop over the k and apply knn from class package
+for (i in k){
+  #print(i)
+  k_model <- knn(train = train_set, 
+                   test = validatn_set,
+                   cl = train_set$Outcome, 
+                   k = i) 
+  accuracy <- mean(k_model == validatn_set$Outcome)
+  k_accuracy <- c(k_accuracy, round(accuracy*100,2)) 
+}
+k_acuracy_dt <- cbind(as.data.frame(k_accuracy),  as.data.frame(k))
+k_acuracy_dt
+
+# Visualize the accuracies and k values
+ggplot(k_acuracy_dt, aes(x=k, y=k_accuracy, )) +
+  geom_point(color= "green") +
+  geom_line(color = "pink") +
+  geom_text(label=k_acuracy_dt$k_accuracy) +
+  xlab("k") +
+  ylab("Accuracy (percentage of correct classifications)") +
+  labs(title = "The Percentage accuracy of various values of k")
+
+```
+
+To generate the plot above I calculated the accuracies of for values of k = 2 to k = 10 via a for loop which also calculated the accuracies in percentages.  
+
+We can see the accuracy increases with increase in k until k= 5. Thereafter it fluctuates a little but does not go higher than 91.41% accuracy for increase in k.  
+
+From this plot, the best choice of k is 5, because if we take a smaller value of k the accuracy depreciates and if we take a higher value of k the accuracy does not go above that at k=5. Also, keeping in mind that the knn works better with smaller values of k, k = 5 is the best.  
+
+
+
+## 2 / Predicting Age of Abalones using Regression kNN  
+
+
+
+```{r p2_load_data}
+# This problem requires analysis of a data set about abalonesLinks to an external site. -- a type of marine snail (abalone.csvLinks to an external site.). The age of an abalone is determined by cutting its shell through the cone, staining it, and counting the number of rings through a microscope -- a laborious and time-consuming task. In this problem we are going to use the other measurements, which are easier to obtain, to predict the age, i.e., we will build a predictive model using a regression kNN algorithm.  
+
+#While you may download the data set for inspection, be sure to load the data into R from its URL.  
+
+#The columns of the data are:  
+
+#Sex / nominal / -- / M, F, and I (infant).  
+#Length / continuous / mm / Longest shell measurement  
+#Diameter / continuous / mm / perpendicular to length.  
+#Height / continuous / mm / with meat in shell.  
+#Whole weight / continuous / grams / whole abalone  
+#Shucked weight / continuous / grams / weight of meat  
+#Viscera weight / continuous / grams / gut weight (after bleeding)  
+#Shell weight / continuous / grams / after being dried  
+#Rings / integer / -- / +1.5 gives the age in years  
+
+#Instructions:  
+
+#Add the level 2 header ## 2 / Predicting Age of Abalones using Regression kNN to your notebook. For each of the questions below, add the appropriate level 3 (###) section header, e.g., ### 2.2 / Encoding Categorical Variables, so we can recognize quickly what problem you are solving.
+url_ab <- "https://s3.us-east-2.amazonaws.com/artificium.us/datasets/abalone.csv"
+
+ab_data <- read.csv(url_ab, stringsAsFactors = FALSE)
+str(ab_data)
+dim(ab_data)
+any(is.na(ab_data))
+head(ab_data)
+
+```
+
+
+### 2.1 / Picking useful data for further work:  
+
+```{r P2Q1}
+#(0 pts) Save the values of the "Rings" column in a separate vector called target_data and then also create a new dataset called train_data containing all the above training features (and, of course, not "Rings").  
+
+
+# Create a vector for target_data
+target_data <- ab_data$NumRings
+
+# Create a dataframe without NumRings
+train_data <- subset(ab_data, select= -NumRings)
+str(train_data)
+
+```
+Looking at the train_data, we confirm that the NumRings column has been removed.  
+
+### 2.2 Categorical Variable Encoding:  
+
+```{r P2Q2}
+#(5 pts) Encode all categorical columns using an encoding scheme of your choice but document (in markdown) why you chose it.  
+
+# Categorical variable encoding
+train_data$Sex <- ifelse(train_data$Sex == "M", 1, 0)
+```
+The Categorical variable I found was the "Sex" column. I thus assigned 1 to M and anything other than that 0, so F will be 0.  
+Reason for choice:  
+The Sex variable is clearly divide into 2 groups;  M and F. They are not related to each other and they are the direct opposite of each other (answering the yes or no question).  of course The Sex variable is not numeric and does not follow any sequence like continuous variables are. thus I chose this as a categorical variable. All other variables look like continuous variables.  Thus I chose binary coding here with M as 1 and F as 0. Other forms of encoding such as One-Hot and integral encoding do not fit in this context since the Sex variable is nominal categorical variable with only two categories.  
+
+
+### 2.3 Data Normalization:  
+
+```{r P2Q3}
+# (5 pts) Normalize all the columns in train_data using min-max normalization. 
+
+# Create a function for scaling
+scalr <- function(x) {
+(x - min(x)) / (max(x) - min(x))
+}
+
+# Apply scaling
+train_data <- as.data.frame(lapply(train_data, scalr))
+#str(train_data)
+head(train_data)
+```
+Here the data has been normalized using the min max method and the first few values can be seen above.  
+
+
+### 2.4 KNN Modeling: 
+
+```{r P2Q4}
+# (15 pts) Build (write) a function called knn.reg that implements a regression version of kNN that averages the value of the Rings of the k nearest neighbors using a weighted average where the weight is 2 for the closest neighbor, 1.5 for the second closest, and 1 for the remaining neighbors (recall that a weighted average requires that you divide the sum product of the weight and values by the sum of the weights).  
+#It must have the following signature: knn.reg (new_data, target_data, train_data, k where new_data is a data frame with new cases, target_data is a data frame with a single column of Rings value from (1), train_data is a data frame with the normalized and encoded features from (1) - (3) that correspond to a Rings value in target_data, and k is the number of nearest neighbors to consider. It must return the predicted values of the Rings as a vector. Use k = 3.  
+#This question requires that you write your own version of kNN and not use one from a package.
+
+
+# Create the knn.reg() function
+# Get weighted average 
+wtd_av <- function(closest, k) {
+  wt_fac1 <- closest[1] * 2
+  wt_fac2 <- closest[2] * 1.5
+  wtd_sum <- sum(closest[3:k]) + wt_fac1 + wt_fac2
+  wts_sum <- (k - 2) + 2 + 1.5
+  wtd_avg <- wtd_sum/wts_sum
+  return(wtd_avg) 
+}
+# Create a function for the distance between points
+get_euc_dist <- function(v1, new_data) sqrt(sum((v1 - new_data)^2))
+
+# Create the knn.reg function
+knn.reg <- function(new_data, target_data, train_data, k){
+  #get the euclidean distance using the function
+  euc_dists <- apply(train_data, 1, FUN=function(x1) get_euc_dist(x1, new_data))
+  # assign the names form the target data
+  names(euc_dists) <- target_data
+  # sort to get the nearest ones close by
+  sort_euc_dist <- sort(euc_dists)
+  # get the neighbours
+  kns <- sort_euc_dist[1:k]
+  # get the weighted average using the function
+  weighted_avg <- wtd_av(as.numeric(names(kns)), k)
+  
+  return(as.integer(weighted_avg))
+}
+
+```
+This chunk of code shows three functions:  
+
+1) The wtd_av function encompases the calculation of weigted averages with the nearest having a weight of 2 the second nearest having a weight of 1.5 and the rest weighted by wiegth factor of 1. the sum of the product of the value and the weight factor is divided by the total weight factors.  
+
+2) The get_euc_dist function calculates the euclidean distance between points. these 2 functions are prerequisites for the knn.reg function requested.  
+
+3) the knn.reg function is one which takes a set of new data, calculates the euclidean distance between the points by using the get_euc_dist() function, assigns names/labels based on the target_data created earlier from the dataset. sorts the distances to keep the closest nearest, then predicts the knn by using the wtd_avg() function.  
+
+
+### 2.5 Forecasting with a Given Data:  
+
+```{r P2Q5}
+# (5 pts) Forecast the number of Rings of this new abalone using your regression kNN using k = 3: 
+#Sex: F | Length: 0.82 | Diameter: 0.491 | Height: 0.361 | Whole weight: 0.5538 | Shucked weight: 0.3245 | Viscera weight: 0.0921 | Shell weight: 0.305
+
+# new data
+nw_data <- scalr(c(0, 0.82, 0.491, 0.361, 0.5538, 0.3245, 0.0921, 0.305))
+k <- 3
+forcasted_rings <- knn.reg(nw_data, target_data, train_data, k)
+#forcasted_rings
+```
+In this forcasting, the knn.reg() function is fed the given data, and the value of k as 3  to forecast and the forecasted number of rings are `r paste0('"',forcasted_rings,'"')`.
+
+
+### 2.6 Root Mean Squared:  
+(5 pts) Calculate the Root Mean Squared Error (RMSE) using a random sample of 20% of the data set as test data.  
+
+```{r P2Q6}
+# test set
+test_set_labs <- sample(rownames(ab_data), 0.20 * nrow(ab_data)) 
+test_dt_x <- train_data[test_set_labs,]
+test_dt_y <- target_data[as.numeric(test_set_labs)] 
+#head(test_dt_x)
+#head(test_dt_y)
+
+
+# Train set
+train_dt_x <- train_data[!(row.names(train_data) %in% test_set_labs),]
+train_dt_y <- target_data[-as.numeric(test_set_labs)] 
+#head(train_dt_x)
+#head(train_dt_y)
+
+
+# Knn
+forcasted_number_rings <- apply(test_dt_x, 1, FUN=function(x1) knn.reg(x1, train_dt_y,train_dt_x, k))
+#head(forcasted_number_rings)
+
+# Get MSE
+mse <- sum((test_dt_y - forcasted_number_rings)^2) / length(test_dt_y)
+
+# Get RMSE
+rmse <- sqrt(mse)
+
+
+```
+The Code chunk above has picked up a random 20% of the data for the testing set and the rest for training set. then forecasted using the knn.reg() function. After this the mse is gotten and its square root is taken to get the RMSE which is `r paste0('"',rmse,'"')`.  
+
+
+## 3 / Forecasting Future Sales Price
+
+```{r P3, echo=FALSE, message=FALSE, results= 'hide'}
+
+# Load the dataset
+url_sales <- "https://s3.us-east-2.amazonaws.com/artificium.us/datasets/property-sales.csv"
+sales_dt <- read.csv(url_sales, stringsAsFactors = FALSE)
+str(sales_dt)
+head(sales_dt)
+
+#check for missing and zero values
+any(is.na(sales_dt))
+any(sales_dt==0)
+summary(sales_dt)
+
+# Property types for bedrooms with zero values
+sales_dt %>%
+  filter(bedrooms == 0) %>%
+  select(propertyType)
+
+# Take off the bedroom rows with zero values and get the valid transactions
+new_sales_dt <- sales_dt[sales_dt$bedrooms != 0,]
+dim(new_sales_dt)
+str(new_sales_dt)
+any(is.na(new_sales_dt))
+sales_transactions <- nrow(new_sales_dt)
+
+# Get the min and max years
+head(new_sales_dt$datesold)
+dates <- as.Date(new_sales_dt$datesold, format = "%m/%d/%y")
+head(dates)
+#any(is.na(dates))
+yrs <- strftime(dates, "%Y")
+min_year <- min(yrs)
+max_year <- max(yrs)
+
+# Get mean sales and sd
+#any(is.na(new_sales_dt$price))
+mn_sales_price <- mean(new_sales_dt$price)
+sd_price <- sd(new_sales_dt$price)
+sd_price
+
+# Get a table for year and average price per year
+new_sales_dt$years<- yrs
+#str(new_sales_dt)
+
+# Get the average prices and years in a table
+average_price_table <- new_sales_dt %>%
+  group_by(years) %>%
+  summarize( average_price_per_year = mean(price))
+
+```
+
+We obtained a data set containing `r paste0('"',sales_transactions,'"')` sales transactions for the years `r paste0('"',min_year,'"')` to `r paste0('"',max_year,'"')`. The mean sales price for the entire time frame was `r paste0('"',mn_sales_price,'"')`(_sd_ = `r paste0('"',sd_price,'"')`).
+
+Broken down by year, we have the following average sales prices per year:  
+
+```{r echo=FALSE}
+knitr::kable(average_price_table)
+```
+
+```{r line_graph, echo=FALSE, message=FALSE}
+library(ggplot2)
+ggplot(data = average_price_table,
+       aes(x = years, y = average_price_per_year, group=1)) +
+  geom_line(color = "pink", linewidth = 1) +
+  xlab("Years") +
+  ylab("Average price per year")
+
+# Get skewness
+library(e1071) 
+skewnez<- skewness(average_price_table$average_price_per_year)
+interpretation <- ""
+# Look at the possibilities
+if (skewnez > 0) {
+  interprtation <- "increasing"
+} else if (skewnez < 0) {
+  interprtation <- "decreasing"
+} else {
+  interprtation <- "symmetrical"
+}
+
+```
+
+As the graph below shows, the average sales price per year has been `r paste0('"',interprtation,'"')`.  
+
+```{r P3_mwa, echo=FALSE}
+wt_factor <- c(4, 3, 1)
+
+# the total number of yrs in the data 
+tot_obs_yr <- nrow(average_price_table)
+#tot_obs_yr
+
+# Get the weighted average for 2020
+nxt_yr_forcast <- (wt_factor[1] * average_price_table$average_price_per_year[tot_obs_yr] +
+                     wt_factor[2] * average_price_table$average_price_per_year[tot_obs_yr-1] +
+                     wt_factor[3] * average_price_table$average_price_per_year[tot_obs_yr-2])/
+  sum(wt_factor)
+
+```
+
+Using a weighted moving average forecasting model that averages the prior 3 years (with weights of 4, 3, and 1), we predict next year's average sales price to be around `r paste0('"',nxt_yr_forcast,'"')`.
+
+
+
+
+
+
+
+
